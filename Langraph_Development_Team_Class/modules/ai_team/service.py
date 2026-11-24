@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlmodel import Session
 
 from core.database.postgres import Run, engine
-from modules.ai_agent.graph import build_team
+from modules.ai_team.graph import build_team
 
 _team = None
 
@@ -59,6 +59,7 @@ def chat(message, parent_id=None):
                 raise HTTPException(404, "Parent run not found.")
             files = dict(parent.files)   # a copy: the parent's snapshot never changes
             messages = [("user", parent.message), ("assistant", parent.answer)]
+            
     messages.append(("user", message))
 
     config = {"configurable": {"files": files}, "recursion_limit": 60}

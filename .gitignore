@@ -5,6 +5,7 @@ node_modules
 .taste-skill
 docs
 AI Development Team
-Langraph_Development_Team
+# Langraph_Development_Team_Class
 .vscode
 Test
+*.pyc
