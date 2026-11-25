@@ -9,6 +9,8 @@ const RUN_ID = '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed';
 const run = { id: RUN_ID, parent_id: null, message: 'm', created_at: '2026-11-23T10:00:00',
   result: { answer: 'a', plan: 'p', review: 'r', approved: true, attempts: 1, files: { 'a.py': 'x' } } };
 
+const sse = `data: ${JSON.stringify({ type: 'done', run })}\n\n`;
+
 test('proxy: adds the API key, validates input, hides backend errors', { timeout: 60000 }, async (t) => {
   const requests = [];
   let status = 200;
@@ -17,6 +19,7 @@ test('proxy: adds the API key, validates input, hides backend errors', { timeout
     requests.push({ url: req.url, key: req.headers['x-api-key'], body: raw ? JSON.parse(raw) : null });
     if (status !== 200) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end('{"detail":"secret-provider-token"}'); return; }
     if (req.url.endsWith('/download')) { res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="run.zip"' }); res.end('PK-zip-bytes'); return; }
+    if (req.url.endsWith('/stream')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end(sse); return; }
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(run));
   });
   await new Promise((resolve) => fixture.listen(0, '127.0.0.1', resolve));
@@ -42,8 +45,9 @@ test('proxy: adds the API key, validates input, hides backend errors', { timeout
   await t.test('forwards chat with the server-side API key and only known fields', async () => {
     const res = await post({ message: '  make calc  ', parent_id: RUN_ID, extra: 'drop me' });
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), run);
-    assert.deepEqual(requests.at(-1), { url: '/api/team/chat', key: 'test-key', body: { message: 'make calc', parent_id: RUN_ID } });
+    assert.equal(res.headers.get('content-type'), 'text/event-stream');
+    assert.equal(await res.text(), sse);
+    assert.deepEqual(requests.at(-1), { url: '/api/team/chat/stream', key: 'test-key', body: { message: 'make calc', parent_id: RUN_ID } });
   });
   await t.test('gets a run and streams the zip download', async () => {
     assert.deepEqual(await (await fetch(`${base}/api/team/runs/${RUN_ID}`)).json(), run);

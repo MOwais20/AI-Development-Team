@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRun, toMeta, toProjects } from '../src/lib/contracts.ts';
+import { parseEvents, parseRun, toMeta, toProjects } from '../src/lib/contracts.ts';
 
 const api = (over = {}, result = {}) => ({
   id: 'a', parent_id: null, message: 'make calc', created_at: '2026-11-23T10:00:00',
@@ -29,4 +29,10 @@ test('groups revisions into projects by following parent_id', () => {
   assert.deepEqual(projects.map((p) => [p.rootId, p.versions.map((v) => v.id)]),
     [['a', ['a', 'b', 'c']], ['x', ['x']], ['orphan', ['orphan']]]);
   assert.equal(projects[0].title, 'run a');
+});
+
+test('keeps a half-received event until the rest arrives', () => {
+  const first = parseEvents('data: {"type":"a"}\n\ndata: {"ty');
+  assert.deepEqual(first, { events: [{ type: 'a' }], rest: 'data: {"ty' });
+  assert.deepEqual(parseEvents(first.rest + 'pe":"b"}\n\n'), { events: [{ type: 'b' }], rest: '' });
 });

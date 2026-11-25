@@ -1,4 +1,5 @@
 import io
+import logging
 import zipfile
 
 from fastapi import HTTPException
@@ -8,6 +9,7 @@ from core.database.postgres import Run, engine
 from modules.ai_team.graph import build_team
 
 _team = None
+log = logging.getLogger(__name__)
 
 
 def get_team():
@@ -50,7 +52,7 @@ def to_response(run):
     }
 
 
-def chat(message, parent_id=None):
+def prepare(message, parent_id=None):
     messages, files = [], {}
     if parent_id:
         with Session(engine()) as session:
@@ -59,12 +61,13 @@ def chat(message, parent_id=None):
                 raise HTTPException(404, "Parent run not found.")
             files = dict(parent.files)   # a copy: the parent's snapshot never changes
             messages = [("user", parent.message), ("assistant", parent.answer)]
-            
+
     messages.append(("user", message))
-
     config = {"configurable": {"files": files}, "recursion_limit": 60}
-    result = get_team().invoke({"messages": messages}, config)   # no session open during the slow AI call
+    return messages, files, config
 
+
+def save(message, parent_id, files, result):
     with Session(engine()) as session:
         run = Run(parent_id=parent_id, message=message,
                   answer=result["messages"][-1].content, files=files,
@@ -73,6 +76,53 @@ def chat(message, parent_id=None):
         session.commit()
         session.refresh(run)
         return to_response(run)
+
+
+def chat(message, parent_id=None):
+    messages, files, config = prepare(message, parent_id)
+    result = get_team().invoke({"messages": messages}, config)   # no session open during the slow AI call
+    return save(message, parent_id, files, result)
+
+
+def progress(ns, task):
+    # one LangGraph "tasks" event -> the progress events the browser shows
+    started = "input" in task
+    if not ns:   # top-level graph: the query moving between supervisor and agents
+        event = {"type": "agent", "name": task["name"], "status": "start" if started else "done"}
+        if task["name"] == "reviewer" and not started:
+            _, review = last_answer((task.get("result") or {}).get("messages", []), "reviewer")
+            if review:
+                event["approved"] = review.lstrip("*#_ ").upper().startswith("APPROVED")
+        return [event]
+    agent = ns[0].split(":")[0]
+    if started and task["name"] == "tools" and agent != "supervisor":
+        calls = task["input"]
+        calls = calls if isinstance(calls, list) else [calls["tool_call"]]
+        return [{"type": "tool", "agent": agent, "name": c["name"], "path": c["args"].get("path")}
+                for c in calls]
+    return []
+
+
+def chat_stream(message, parent_id=None):
+    # runs before the response starts, so a missing parent is still a real 404
+    messages, files, config = prepare(message, parent_id)
+
+    def events():
+        try:
+            result = None
+            for ns, mode, data in get_team().stream(
+                    {"messages": messages}, config,
+                    stream_mode=["tasks", "values"], subgraphs=True):
+                if mode == "tasks":
+                    yield from progress(ns, data)
+                elif not ns:
+                    result = data   # final top-level state
+            yield {"type": "done", "run": save(message, parent_id, files, result)}
+        except Exception:   # the 200 status is already sent, so report failure as an event
+            log.exception("Streaming run failed")
+            yield {"type": "error", "error": "The team couldn\u2019t finish this run. Check the FastAPI logs."}
+
+    return events()
 
 
 def get_run(run_id):

@@ -6,6 +6,18 @@ export type Run = {
   files: Record<string, string>;
 };
 
+// Live events from FastAPI while a run is in progress (service.py -> progress).
+export type Progress =
+  | { type: "agent"; name: string; status: "start" | "done"; approved?: boolean }
+  | { type: "tool"; agent: string; name: string; path: string | null };
+
+// Splits buffered SSE text into complete events; `rest` is an unfinished event to keep.
+export function parseEvents(buffer: string): { events: Record<string, unknown>[]; rest: string } {
+  const blocks = buffer.split("\n\n");
+  const rest = blocks.pop() ?? "";
+  return { rest, events: blocks.filter((b) => b.startsWith("data: ")).map((b) => JSON.parse(b.slice(6))) };
+}
+
 // What this browser remembers about a run (the sidebar). The full run lives in Postgres.
 export type RunMeta = { id: string; parentId: string | null; title: string; approved: boolean; createdAt: string };
 

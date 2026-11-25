@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createRun, getRun } from "@/lib/api";
-import { toMeta, toProjects, type Run, type RunMeta } from "@/lib/contracts";
+import { toMeta, toProjects, type Progress, type Run, type RunMeta } from "@/lib/contracts";
 import { readRuns, saveRuns } from "@/lib/storage";
 
-export type Pending = { message: string; parentId: string | null };
+export type Pending = { message: string; parentId: string | null; events: Progress[] };
 
 type State = {
   ready: boolean;
@@ -68,9 +68,11 @@ export function useRuns() {
     if (!message || busy.current) return false;
     busy.current = true;
     const parentId = activeId;   // revise the open run, or start a new project
-    setPending({ message, parentId }); setSendError(null);
+    setPending({ message, parentId, events: [] }); setSendError(null);
     try {
-      dispatch({ type: "remember", run: await createRun(message, parentId), select: true });
+      const run = await createRun(message, parentId, (event) =>
+        setPending((p) => p && { ...p, events: [...p.events, event] }));
+      dispatch({ type: "remember", run, select: true });
       return true;
     } catch (e) {
       setSendError(e instanceof Error ? e.message : "The run failed.");
