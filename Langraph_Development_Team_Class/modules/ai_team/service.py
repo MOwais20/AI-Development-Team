@@ -7,6 +7,7 @@ from sqlmodel import Session
 
 from core.database.postgres import Run, engine
 from modules.ai_team.graph import build_team
+from langfuse.langchain import CallbackHandler
 
 _team = None
 log = logging.getLogger(__name__)
@@ -63,7 +64,12 @@ def prepare(message, parent_id=None):
             messages = [("user", parent.message), ("assistant", parent.answer)]
 
     messages.append(("user", message))
-    config = {"configurable": {"files": files}, "recursion_limit": 60}
+    config = {
+        "configurable": {"files": files}, 
+        "recursion_limit": 60,
+        "callbacks": [CallbackHandler()], # sends every agent, model and tool call to Langfuse
+        "run-name": "ai-development-team-agent"
+    }
     return messages, files, config
 
 
