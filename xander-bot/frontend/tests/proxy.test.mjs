@@ -11,7 +11,7 @@ test('production proxy: real forwarding, validation and safe failures', { timeou
   let backendStatus = 200;
   const fixture = http.createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
-    requests.push({ url: req.url, body: raw ? JSON.parse(raw) : null });
+    requests.push({ url: req.url, key: req.headers['x-api-key'], body: raw ? JSON.parse(raw) : null });
     res.writeHead(backendStatus, { 'Content-Type': 'application/json' });
     if (backendStatus !== 200) { res.end(JSON.stringify({ detail: 'secret-provider-token' })); return; }
     const url = new URL(req.url, 'http://fixture');
@@ -26,7 +26,7 @@ test('production proxy: real forwarding, validation and safe failures', { timeou
   await new Promise((resolve) => probe.close(resolve));
   const base = `http://127.0.0.1:${port}`;
   const next = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', String(port)], {
-    env: { ...process.env, BACKEND_URL: `http://127.0.0.1:${fixture.address().port}`, NEXT_TELEMETRY_DISABLED: '1' },
+    env: { ...process.env, BACKEND_URL: `http://127.0.0.1:${fixture.address().port}`, NEXT_TELEMETRY_DISABLED: '1', BACKEND_API_KEY: 'test-key' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = ''; next.stdout.on('data', (d) => { output += d; }); next.stderr.on('data', (d) => { output += d; });
@@ -48,6 +48,7 @@ test('production proxy: real forwarding, validation and safe failures', { timeou
     assert.deepEqual(await res.json(), { session_id: 'test abc', answer: 'A real fixture response' });
     assert.deepEqual(requests.at(-1).body, { query: 'Menu?', session_id: 'test abc' });
     assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(requests.at(-1).key, 'test-key');
   });
   await t.test('encodes history session IDs without query injection', async () => {
     const id = 'abc &other=value/?';

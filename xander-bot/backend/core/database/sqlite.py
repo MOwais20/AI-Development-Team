@@ -35,15 +35,17 @@ def save_complaint(customer_name, order_id, phone, complaint):
     values = (customer_name, order_id, phone, complaint)
     with closing(connect()) as connection, connection:
         # Retrying the same complaint returns its existing ID.
-        connection.execute(
-            "INSERT OR IGNORE INTO complaints (customer_name, order_id, phone, complaint) VALUES (?, ?, ?, ?)",
-            values,
-        )
+        # Checked here, not by a UNIQUE index: existing databases may already hold duplicates.
+        connection.execute("BEGIN IMMEDIATE")   # one writer at a time, so no check-then-insert race
         row = connection.execute(
             "SELECT id FROM complaints WHERE customer_name=? AND order_id=? AND phone=? AND complaint=?",
             values,
         ).fetchone()
-    return {"complaint_id": row[0], "status": "Pending"}
+        complaint_id = row[0] if row else connection.execute(
+            "INSERT INTO complaints (customer_name, order_id, phone, complaint) VALUES (?, ?, ?, ?)",
+            values,
+        ).lastrowid
+    return {"complaint_id": complaint_id, "status": "Pending"}
 
 
 

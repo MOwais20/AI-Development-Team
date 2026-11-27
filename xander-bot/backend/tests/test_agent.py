@@ -1,5 +1,6 @@
 """Offline tests: real API, graph, SQLite and Chroma; no provider calls."""
 from contextlib import nullcontext
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,11 +51,14 @@ class AgentTests(unittest.TestCase):
         self.graph = build_graph(model=self.model, tools=[fetch_menu])
         self.patch_graph = patch.object(service, "get_graph", return_value=self.graph)
         self.patch_graph.start()
-        self.client = TestClient(app)
+        self.patch_key = patch.dict(os.environ, {"AUTHENTICATED_KEY": "test-key"})
+        self.patch_key.start()
+        self.client = TestClient(app, headers={"X-API-KEY": "test-key"})
         self.client.__enter__()
 
     def tearDown(self):
         self.client.__exit__(None, None, None)
+        self.patch_key.stop()
         self.patch_graph.stop()
         self.patch_db.stop()
         self.patch_data.stop()
@@ -68,7 +72,7 @@ class AgentTests(unittest.TestCase):
         self.assertEqual([m.type for m in saved], ["human", "ai", "tool", "ai"])
         self.assertEqual(saved[1].tool_calls[0]["id"], saved[2].tool_call_id)
         # A new app lifespan and a newly built graph load the same SQLite file.
-        with TestClient(app) as restarted, patch.object(service, "get_graph", return_value=build_graph(model=FakeModel(), tools=[fetch_menu])):
+        with TestClient(app, headers=self.client.headers) as restarted, patch.object(service, "get_graph", return_value=build_graph(model=FakeModel(), tools=[fetch_menu])):
             reply = restarted.post("/ai/chat", json={"query": "remember me", "session_id": "sam"})
             self.assertIn("menu | remember me", reply.json()["answer"])
         public = self.client.get("/ai/history", params={"session_id": "sam"}).json()
@@ -98,6 +102,12 @@ class AgentTests(unittest.TestCase):
                 response = self.client.post("/ai/chat", json={"query": "hello", "session_id": "failed"})
             self.assertEqual(response.status_code, 502)
             self.assertEqual(sqlite.load_messages("failed"), [])
+
+    def test_api_key_is_required(self):
+        for headers in [{"X-API-KEY": ""}, {"X-API-KEY": "wrong"}]:
+            self.assertEqual(self.client.get("/ai/history?session_id=sam", headers=headers).status_code, 403)
+        with patch.dict(os.environ, {"AUTHENTICATED_KEY": ""}):
+            self.assertEqual(self.client.get("/ai/history?session_id=sam", headers={"X-API-KEY": ""}).status_code, 403)
 
     def test_complaint_validation_and_retry(self):
         args = {"customer_name": "Sam", "order_id": "INVALID", "phone": "03000000000", "complaint": "Wrong food delivered"}

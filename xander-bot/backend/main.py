@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from core.database.sqlite import init_database
 
@@ -13,8 +14,12 @@ load_dotenv()
 # Import Routers
 from modules.ai_agent.router import ai_agent_router
 
-init_database()   # create tables once when the server starts
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app):
+    init_database()   # create tables once when the server starts
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 origins = [
    "http://localhost:5500",

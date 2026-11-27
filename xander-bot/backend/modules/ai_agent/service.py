@@ -1,14 +1,17 @@
 """Load history -> run graph -> save new messages."""
+from functools import cache
 from langchain_core.messages import HumanMessage
 from core.database import sqlite
 from modules.ai_agent.supervisor import build_supervisor
 
-graph = build_supervisor("groq")   # or "ollama", or graph.build_graph("ollama") for one agent
+@cache   # built on the first request, so the server can start without a model key
+def get_graph():
+    return build_supervisor("groq")   # or "ollama", or graph.build_graph("ollama") for one agent
 
 
 def chat(query, session_id):
     history = sqlite.load_messages(session_id)
-    result = graph.invoke({"messages": history + [HumanMessage(content=query)]})
+    result = get_graph().invoke({"messages": history + [HumanMessage(content=query)]})
     new_messages = result["messages"][len(history):]
     sqlite.append_messages(session_id, new_messages)
     # The supervisor often adds a closing line after the worker's answer.

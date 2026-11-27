@@ -28,6 +28,9 @@ def validate_order_id(order_id: str) -> bool:
 @tool
 def log_complaint(customer_name: str, order_id: str, phone: str, complaint: str) -> dict:
     """Save a customer complaint for a valid order ID."""
+    # Enforced here too, in case the model skips validate_order_id
+    if order_id not in order_list:
+        return {"error": "Invalid order ID. Ask the customer to check it."}
     return save_complaint(customer_name, order_id, phone, complaint)
 
 @tool

@@ -12,7 +12,7 @@ export async function forward(path: string, init?: RequestInit): Promise<Respons
   try {
     const response = await fetch(new URL(path, base), {
       ...init, cache: "no-store", signal: AbortSignal.timeout(180_000),
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-KEY": process.env.BACKEND_API_KEY || "" },
     });
     if (!response.ok) {
       const error = response.status === 429
